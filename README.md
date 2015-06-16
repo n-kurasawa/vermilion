@@ -1,15 +1,15 @@
-# dev-tmpl
+# vermilion
 
 ## Environment
-### Backend
-* Elixir
-* Phoenix
-* PostgreSQL
-
 ### Frontend
 * ES6
 * React
 * Flummox
+
+### Backend
+* Elixir
+* Phoenix
+* PostgreSQL
 
 ### Infra & Others
 * Chef
