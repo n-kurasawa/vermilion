@@ -4,35 +4,36 @@ var concat  = require('gulp-concat')
 var babelify = require('babelify');
 var browserify = require('browserify');
 var source = require('vinyl-source-stream');
-var bowerFiles  = require('main-bower-files');
+var stylus  = require('gulp-stylus')
+var nib = require('nib');
 
 gulp.task('js', function() {
-    return browserify({
-        entries:['./src/jsx/App.jsx'],
-        extensions:['js', 'jsx']
-    })
-    .transform(babelify)
-    .bundle()
-    .on('error', function(err){
-      console.log(err);
-      this.emit('end');
-    })
-    .pipe(source('app.js'))
-    .pipe(gulp.dest('./public/js'));
+  return browserify({
+      entries:['./src/js/components/App.jsx'],
+      extensions:['js', 'jsx']
+  })
+  .transform(babelify)
+  .bundle()
+  .on('error', function(err){
+    console.log(err);
+    this.emit('end');
+  })
+  .pipe(source('app.js'))
+  .pipe(gulp.dest('./public/js'));
 });
 
-gulp.task ('vendor', function() {
-    gulp.src(bowerFiles())
-    .pipe(plumber())
-    .pipe(concat('vendor.js'))
-    .pipe(gulp.dest('./public/js'));
+gulp.task('css', function(argument) {
+  return gulp.src('./src/stylus/*.styl')
+      .pipe(plumber())
+      .pipe(stylus( {use: [nib()]}))
+      .pipe(gulp.dest('public/css'));
 });
 
 gulp.task('watch', ['build'], function() {
-  gulp.watch("src/jsx/**/*.jsx", ['js']);
-  gulp.watch("src/jsx/**/*.js", ['js']);
-  gulp.watch('bower_components/**/*.js', ['vendor']);
+  gulp.watch("./src/js/**/*.jsx", ['js']);
+  gulp.watch("./src/js/**/*.js", ['js']);
+  gulp.watch("./src/stylus/**/*.styl", ['css']);
 });
 
-gulp.task('build', ['vendor', 'js']);
+gulp.task('build', ['js', 'css']);
 gulp.task('default', ['watch']);
