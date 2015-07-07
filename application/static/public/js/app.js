@@ -23958,7 +23958,7 @@ var _flummox = require('flummox');
 
 require('isomorphic-fetch');
 
-var _vendorPhoenix = require('../../vendor/phoenix');
+var _vendorPhoenix = require('../vendor/phoenix');
 
 var ScoreActions = (function (_Actions) {
   function ScoreActions() {
@@ -24042,7 +24042,7 @@ module.exports = exports['default'];
 
 // ready: Promise;
 
-},{"../../vendor/phoenix":197,"flummox":4,"isomorphic-fetch":15}],191:[function(require,module,exports){
+},{"../vendor/phoenix":197,"flummox":4,"isomorphic-fetch":15}],191:[function(require,module,exports){
 'use strict';
 
 var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
@@ -24489,6 +24489,8 @@ module.exports = exports['default'];
 // The `Socket` constructor takes the mount point of the socket
 // as well as options that can be found in the Socket docs,
 // such as configuring the `LongPoller` transport, and heartbeat.
+// Socket params can also be passed as an option for default, but
+// overridable channel params to apply to all channels.
 //
 //
 // ## Channels
@@ -24525,7 +24527,7 @@ module.exports = exports['default'];
 //
 // ## Pushing Messages
 //
-// From the prevoius example, we can see that pushing messages to the server
+// From the previous example, we can see that pushing messages to the server
 // can be done with `chan.push(eventName, payload)` and we can optionally
 // receive responses from the push. Additionally, we can use
 // `after(millsec, callback)` to abort waiting for our `receive` hooks and
@@ -24720,46 +24722,41 @@ var Channel = (function () {
     this.joinedOnce = false;
     this.joinPush = new Push(this, CHAN_EVENTS.join, this.params);
     this.pushBuffer = [];
-
+    this.rejoinTimer = new Timer(function () {
+      return _this3.rejoinUntilConnected();
+    }, this.socket.reconnectAfterMs);
     this.joinPush.receive("ok", function () {
       _this3.state = CHAN_STATES.joined;
+      _this3.rejoinTimer.reset();
     });
     this.onClose(function () {
+      _this3.socket.log("channel", "close " + _this3.topic);
       _this3.state = CHAN_STATES.closed;
       _this3.socket.remove(_this3);
     });
     this.onError(function (reason) {
+      _this3.socket.log("channel", "error " + _this3.topic, reason);
       _this3.state = CHAN_STATES.errored;
-      setTimeout(function () {
-        return _this3.rejoinUntilConnected();
-      }, _this3.socket.reconnectAfterMs);
+      _this3.rejoinTimer.setTimeout();
     });
-    this.on(CHAN_EVENTS.reply, function (payload) {
-      _this3.trigger(_this3.replyEventName(payload.ref), payload);
+    this.on(CHAN_EVENTS.reply, function (payload, ref) {
+      _this3.trigger(_this3.replyEventName(ref), payload);
     });
   }
 
   _createClass(Channel, [{
     key: "rejoinUntilConnected",
     value: function rejoinUntilConnected() {
-      var _this4 = this;
-
-      if (this.state !== CHAN_STATES.errored) {
-        return;
-      }
+      this.rejoinTimer.setTimeout();
       if (this.socket.isConnected()) {
         this.rejoin();
-      } else {
-        setTimeout(function () {
-          return _this4.rejoinUntilConnected();
-        }, this.socket.reconnectAfterMs);
       }
     }
   }, {
     key: "join",
     value: function join() {
       if (this.joinedOnce) {
-        throw "tried to join mulitple times. 'join' can only be called a singe time per channel instance";
+        throw "tried to join multiple times. 'join' can only be called a single time per channel instance";
       } else {
         this.joinedOnce = true;
       }
@@ -24826,12 +24823,20 @@ var Channel = (function () {
     //     chan.leave().receive("ok", () => alert("left!") )
     //
     value: function leave() {
-      var _this5 = this;
+      var _this4 = this;
 
       return this.push(CHAN_EVENTS.leave).receive("ok", function () {
-        _this5.trigger(CHAN_EVENTS.close, "leave");
+        _this4.log("channel", "leave " + _this4.topic);
+        _this4.trigger(CHAN_EVENTS.close, "leave");
       });
     }
+  }, {
+    key: "onMessage",
+
+    // Overridable message hook
+    //
+    // Receives all events for specialized message handling
+    value: function onMessage(event, payload, ref) {}
   }, {
     key: "isMember",
 
@@ -24857,11 +24862,12 @@ var Channel = (function () {
     }
   }, {
     key: "trigger",
-    value: function trigger(triggerEvent, msg) {
+    value: function trigger(triggerEvent, payload, ref) {
+      this.onMessage(triggerEvent, payload, ref);
       this.bindings.filter(function (bind) {
         return bind.event === triggerEvent;
       }).map(function (bind) {
-        return bind.callback(msg);
+        return bind.callback(payload, ref);
       });
     }
   }, {
@@ -24886,32 +24892,47 @@ var Socket = (function () {
   // opts - Optional configuration
   //   transport - The Websocket Transport, ie WebSocket, Phoenix.LongPoller.
   //               Defaults to WebSocket with automatic LongPoller fallback.
+  //   params - The defaults for all channel params, ie `{user_id: userToken}`
   //   heartbeatIntervalMs - The millisec interval to send a heartbeat message
-  //   reconnectAfterMs - The millisec interval to reconnect after connection loss
+  //   reconnectAfterMs - The optional function that returns the millsec
+  //                      reconnect interval. Defaults to stepped backoff of:
+  //
+  //     function(tries){
+  //       return [1000, 5000, 10000][tries - 1] || 10000
+  //     }
+  //
   //   logger - The optional function for specialized logging, ie:
-  //            `logger: function(msg){ console.log(msg) }`
-  //   longpoller_timeout - The maximum timeout of a long poll AJAX request.
+  //     `logger: (kind, msg, data) => { console.log(`${kind}: ${msg}`, data) }
+  //
+  //   longpollerTimeout - The maximum timeout of a long poll AJAX request.
   //                        Defaults to 20s (double the server long poll timer).
   //
   // For IE8 support use an ES5-shim (https://github.com/es-shims/es5-shim)
   //
 
   function Socket(endPoint) {
+    var _this5 = this;
+
     var opts = arguments[1] === undefined ? {} : arguments[1];
 
     _classCallCheck(this, Socket);
 
     this.stateChangeCallbacks = { open: [], close: [], error: [], message: [] };
-    this.reconnectTimer = null;
     this.channels = [];
     this.sendBuffer = [];
     this.ref = 0;
     this.transport = opts.transport || window.WebSocket || LongPoller;
     this.heartbeatIntervalMs = opts.heartbeatIntervalMs || 30000;
-    this.reconnectAfterMs = opts.reconnectAfterMs || 5000;
+    this.reconnectAfterMs = opts.reconnectAfterMs || function (tries) {
+      return [1000, 5000, 10000][tries - 1] || 10000;
+    };
+    this.reconnectTimer = new Timer(function () {
+      return _this5.connect();
+    }, this.reconnectAfterMs);
     this.logger = opts.logger || function () {}; // noop
-    this.longpoller_timeout = opts.longpoller_timeout || 20000;
+    this.longpollerTimeout = opts.longpollerTimeout || 20000;
     this.endPoint = this.expandEndpoint(endPoint);
+    this.params = opts.params || {};
   }
 
   _createClass(Socket, [{
@@ -24952,7 +24973,7 @@ var Socket = (function () {
 
       this.disconnect(function () {
         _this6.conn = new _this6.transport(_this6.endPoint);
-        _this6.conn.timeout = _this6.longpoller_timeout;
+        _this6.conn.timeout = _this6.longpollerTimeout;
         _this6.conn.onopen = function () {
           return _this6.onConnOpen();
         };
@@ -24971,8 +24992,8 @@ var Socket = (function () {
     key: "log",
 
     // Logs the message. Override `this.logger` for specialized logging. noops by default
-    value: function log(msg) {
-      this.logger(msg);
+    value: function log(kind, msg, data) {
+      this.logger(kind, msg, data);
     }
   }, {
     key: "onOpen",
@@ -25006,8 +25027,9 @@ var Socket = (function () {
     value: function onConnOpen() {
       var _this7 = this;
 
+      this.log("transport", "connected to " + this.endPoint, this.transport);
       this.flushSendBuffer();
-      clearInterval(this.reconnectTimer);
+      this.reconnectTimer.reset();
       if (!this.conn.skipHeartbeat) {
         clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = setInterval(function () {
@@ -25021,16 +25043,10 @@ var Socket = (function () {
   }, {
     key: "onConnClose",
     value: function onConnClose(event) {
-      var _this8 = this;
-
-      this.log("WS close:");
-      this.log(event);
+      this.log("transport", "close", event);
       this.triggerChanError();
-      clearInterval(this.reconnectTimer);
       clearInterval(this.heartbeatTimer);
-      this.reconnectTimer = setInterval(function () {
-        return _this8.connect();
-      }, this.reconnectAfterMs);
+      this.reconnectTimer.setTimeout();
       this.stateChangeCallbacks.close.forEach(function (callback) {
         return callback(event);
       });
@@ -25038,8 +25054,7 @@ var Socket = (function () {
   }, {
     key: "onConnError",
     value: function onConnError(error) {
-      this.log("WS error:");
-      this.log(error);
+      this.log("transport", error);
       this.triggerChanError();
       this.stateChangeCallbacks.error.forEach(function (callback) {
         return callback(error);
@@ -25080,19 +25095,35 @@ var Socket = (function () {
     }
   }, {
     key: "chan",
-    value: function chan(topic, params) {
-      var chan = new Channel(topic, params, this);
+    value: function chan(topic) {
+      var chanParams = arguments[1] === undefined ? {} : arguments[1];
+
+      var mergedParams = {};
+      for (var key in this.params) {
+        mergedParams[key] = this.params[key];
+      }
+      for (var key in chanParams) {
+        mergedParams[key] = chanParams[key];
+      }
+
+      var chan = new Channel(topic, mergedParams, this);
       this.channels.push(chan);
       return chan;
     }
   }, {
     key: "push",
     value: function push(data) {
-      var _this9 = this;
+      var _this8 = this;
+
+      var topic = data.topic;
+      var event = data.event;
+      var payload = data.payload;
+      var ref = data.ref;
 
       var callback = function callback() {
-        return _this9.conn.send(JSON.stringify(data));
+        return _this8.conn.send(JSON.stringify(data));
       };
+      this.log("push", "" + topic + " " + event + " (" + ref + ")", payload);
       if (this.isConnected()) {
         callback();
       } else {
@@ -25131,22 +25162,20 @@ var Socket = (function () {
   }, {
     key: "onConnMessage",
     value: function onConnMessage(rawMessage) {
-      this.log("message received:");
-      this.log(rawMessage);
+      var msg = JSON.parse(rawMessage.data);
+      var topic = msg.topic;
+      var event = msg.event;
+      var payload = msg.payload;
+      var ref = msg.ref;
 
-      var _JSON$parse = JSON.parse(rawMessage.data);
-
-      var topic = _JSON$parse.topic;
-      var event = _JSON$parse.event;
-      var payload = _JSON$parse.payload;
-
+      this.log("receive", "" + (payload.status || "") + " " + topic + " " + event + " " + (ref && "(" + ref + ")" || ""), payload);
       this.channels.filter(function (chan) {
         return chan.isMember(topic);
       }).forEach(function (chan) {
-        return chan.trigger(event, payload);
+        return chan.trigger(event, payload, ref);
       });
       this.stateChangeCallbacks.message.forEach(function (callback) {
-        callback(topic, event, payload);
+        return callback(msg);
       });
     }
   }]);
@@ -25160,7 +25189,6 @@ var LongPoller = (function () {
   function LongPoller(endPoint) {
     _classCallCheck(this, LongPoller);
 
-    this.retryInMs = 5000;
     this.endPoint = null;
     this.token = null;
     this.sig = null;
@@ -25184,7 +25212,7 @@ var LongPoller = (function () {
   }, {
     key: "endpointURL",
     value: function endpointURL() {
-      return this.pollEndpoint + ("?token=" + encodeURIComponent(this.token) + "&sig=" + encodeURIComponent(this.sig));
+      return this.pollEndpoint + ("?token=" + encodeURIComponent(this.token) + "&sig=" + encodeURIComponent(this.sig) + "&format=json");
     }
   }, {
     key: "closeAndRetry",
@@ -25201,7 +25229,7 @@ var LongPoller = (function () {
   }, {
     key: "poll",
     value: function poll() {
-      var _this10 = this;
+      var _this9 = this;
 
       if (!(this.readyState === SOCKET_STATES.open || this.readyState === SOCKET_STATES.connecting)) {
         return;
@@ -25214,8 +25242,8 @@ var LongPoller = (function () {
           var sig = resp.sig;
           var messages = resp.messages;
 
-          _this10.token = token;
-          _this10.sig = sig;
+          _this9.token = token;
+          _this9.sig = sig;
         } else {
           var status = 0;
         }
@@ -25223,22 +25251,22 @@ var LongPoller = (function () {
         switch (status) {
           case 200:
             messages.forEach(function (msg) {
-              return _this10.onmessage({ data: JSON.stringify(msg) });
+              return _this9.onmessage({ data: JSON.stringify(msg) });
             });
-            _this10.poll();
+            _this9.poll();
             break;
           case 204:
-            _this10.poll();
+            _this9.poll();
             break;
           case 410:
-            _this10.readyState = SOCKET_STATES.open;
-            _this10.onopen();
-            _this10.poll();
+            _this9.readyState = SOCKET_STATES.open;
+            _this9.onopen();
+            _this9.poll();
             break;
           case 0:
           case 500:
-            _this10.onerror();
-            _this10.closeAndRetry();
+            _this9.onerror();
+            _this9.closeAndRetry();
             break;
           default:
             throw "unhandled poll status " + status;
@@ -25248,12 +25276,12 @@ var LongPoller = (function () {
   }, {
     key: "send",
     value: function send(body) {
-      var _this11 = this;
+      var _this10 = this;
 
       Ajax.request("POST", this.endpointURL(), "application/json", body, this.timeout, this.onerror.bind(this, "timeout"), function (resp) {
         if (!resp || resp.status !== 200) {
-          _this11.onerror(status);
-          _this11.closeAndRetry();
+          _this10.onerror(status);
+          _this10.closeAndRetry();
         }
       });
     }
@@ -25290,12 +25318,12 @@ var Ajax = (function () {
   }, {
     key: "xdomainRequest",
     value: function xdomainRequest(req, method, endPoint, body, timeout, ontimeout, callback) {
-      var _this12 = this;
+      var _this11 = this;
 
       req.timeout = timeout;
       req.open(method, endPoint);
       req.onload = function () {
-        var response = _this12.parseJSON(req.responseText);
+        var response = _this11.parseJSON(req.responseText);
         callback && callback(response);
       };
       if (ontimeout) {
@@ -25310,7 +25338,7 @@ var Ajax = (function () {
   }, {
     key: "xhrRequest",
     value: function xhrRequest(req, method, endPoint, accept, body, timeout, ontimeout, callback) {
-      var _this13 = this;
+      var _this12 = this;
 
       req.timeout = timeout;
       req.open(method, endPoint, true);
@@ -25319,8 +25347,8 @@ var Ajax = (function () {
         callback && callback(null);
       };
       req.onreadystatechange = function () {
-        if (req.readyState === _this13.states.complete && callback) {
-          var response = _this13.parseJSON(req.responseText);
+        if (req.readyState === _this12.states.complete && callback) {
+          var response = _this12.parseJSON(req.responseText);
           callback(response);
         }
       };
@@ -25343,5 +25371,64 @@ var Ajax = (function () {
 exports.Ajax = Ajax;
 
 Ajax.states = { complete: 4 };
+
+// Creates a timer that accepts a `timerCalc` function to perform
+// calculated timeout retries, such as exponential backoff.
+//
+// ## Examples
+//
+//    let reconnectTimer = new Timer(() => this.connect(), function(tries){
+//      return [1000, 5000, 10000][tries - 1] || 10000
+//    })
+//    reconnectTimer.setTimeout() // fires after 1000
+//    reconnectTimer.setTimeout() // fires after 5000
+//    reconnectTimer.reset()
+//    reconnectTimer.setTimeout() // fires after 1000
+//
+
+var Timer = (function () {
+  function Timer(callback, timerCalc) {
+    _classCallCheck(this, Timer);
+
+    this.callback = callback;
+    this.timerCalc = timerCalc;
+    this.timer = null;
+    this.tries = 0;
+  }
+
+  _createClass(Timer, [{
+    key: "reset",
+    value: function reset() {
+      this.tries = 0;
+      clearTimeout(this.timer);
+    }
+  }, {
+    key: "setTimeout",
+
+    // Cancels any previous setTimeout and schedules callback
+    value: (function (_setTimeout) {
+      function setTimeout() {
+        return _setTimeout.apply(this, arguments);
+      }
+
+      setTimeout.toString = function () {
+        return _setTimeout.toString();
+      };
+
+      return setTimeout;
+    })(function () {
+      var _this13 = this;
+
+      clearTimeout(this.timer);
+
+      this.timer = setTimeout(function () {
+        _this13.tries = _this13.tries + 1;
+        _this13.callback();
+      }, this.timerCalc(this.tries + 1));
+    })
+  }]);
+
+  return Timer;
+})();
 
 },{}]},{},[191]);

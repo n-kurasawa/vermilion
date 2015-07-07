@@ -1,6 +1,6 @@
 import { Actions } from 'flummox';
 import 'isomorphic-fetch';
-import { Socket } from '../../vendor/phoenix';
+import { Socket } from '../vendor/phoenix';
 
 
 export default class ScoreActions extends Actions {
