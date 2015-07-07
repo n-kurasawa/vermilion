@@ -15,7 +15,6 @@ export default class ScoreStore extends Store {
   }
 
   handlegetScore(score) {
-    console.log('store : ' + score);
     var newScoreId = +new Date();
     var scores = this.state.scores;
     scores[newScoreId] = score;
