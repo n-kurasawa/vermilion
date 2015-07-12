@@ -6,26 +6,29 @@ export default class ScoreStore extends Store {
 
     const scoreActions = flux.getActionIds('score');
     this.register(scoreActions.getScore, this.handlegetScore);
-    this.register(scoreActions.createScore, this.handleCreateScore);
     this.register(scoreActions.resetScore, this.handleResetScore);
+    this.register(scoreActions.error, this.handlerror);
 
     this.state = {
-      scores: {}
+      scores: {},
+      error: ""
     };
   }
 
   handlegetScore(score) {
-    var newScoreId = +new Date();
-    var scores = this.state.scores;
-    scores[newScoreId] = score;
-    this.setState( {scores} );
-  }
-
-  handleCreateScore() {
+    this.setState( (state) => {
+      var newScoreId = +new Date();
+      state.scores[newScoreId] = score;
+      return {scores:  state.scores, error: ""};
+    });
   }
 
   handleResetScore() {
-    this.setState({});
+    this.setState({scores: {}, error:""});
+  }
+
+  handlerror(msg) {
+    this.setState({error: msg})
   }
 
 }

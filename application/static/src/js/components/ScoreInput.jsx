@@ -14,6 +14,7 @@ export default class ScoreInput extends React.Component {
       <form>
         <input className="new-score" type="text" value={this.state.newScore} onChange={this.handleChange.bind(this)} placeholder="点数" autofocus />
         <input className="score-submit button" type="submit" value="採点する" onClick={this.handleSubmit.bind(this)} />
+        <div className="err">{this.props.error}</div>
       </form>
     );
   }
