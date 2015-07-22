@@ -1,0 +1,26 @@
+{
+  "name": "vermilion",
+  "version": "1.0.0",
+  "description": "## Environment ### Frontend * ES6 * React * Flummox",
+  "main": "gulpfile.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/n-kurasawa/vermilion.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/n-kurasawa/vermilion/issues"
+  },
+  "homepage": "https://github.com/n-kurasawa/vermilion",
+  "devDependencies": {
+    "gulp": "^3.9.0",
+    "gulp-plumber": "^1.0.1",
+    "gulp-rsync": "0.0.5",
+    "grunt-rsync": "~0.6.0",
+    "grunt-cli": "~0.1.13"
+  }
+}

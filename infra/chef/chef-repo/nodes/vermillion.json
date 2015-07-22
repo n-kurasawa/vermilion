@@ -1,0 +1,17 @@
+{
+  "run_list": [
+    "nginx",
+    "elixir",
+    "postgresql",
+    "nodejs"
+  ],
+  "nginx": {
+    "do_not_cache": 0
+  },
+  "elixir": {
+    "version": "1.0.2"
+  },
+  "automatic": {
+    "ipaddress": "vagrant"
+  }
+}
