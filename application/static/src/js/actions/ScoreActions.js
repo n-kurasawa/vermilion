@@ -37,8 +37,8 @@ export default class ScoreActions extends Actions {
   }
 
   createScore(score) {
-    if (score > 100 || score < 0) {
-      this.error("0~100点までの間にしてくだされ");
+    if (score > 10 || score < 0) {
+      this.error("0~10点までの間にしてくだされ");
     } else {
       this.channel.push("new_score", {body: score});
     }
